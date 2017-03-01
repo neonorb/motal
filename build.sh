@@ -14,10 +14,13 @@ TOOLS=$LFS_BUILD_TOOLS
 PATH=$TOOLS/bin/:/bin/:/usr/bin/
 LFS_TGT=$(uname -m)-lfs-linux-gnu
 
+if true; then # ==============================================================================s
+
 # binutils
 (
 echo "====== BUILDING BINUTILS ======"
 cd binutils-*/
+rm -rf build/
 mkdir -p build/
 cd build/
 # configure
@@ -31,7 +34,7 @@ cd build/
 make
 
 case $(uname -m) in
-  x86_64) mkdir -v $TOOLS/lib/ && ln -sv lib/ $TOOLS/lib64/ ;;
+  x86_64) mkdir -vp $TOOLS/lib/ && ln -sv -T $TOOLS/lib $TOOLS/lib64 || echo ;;
 esac
 # install to tools directory
 make install
@@ -44,23 +47,23 @@ cd gcc-*/
 # copy package folders
 cp -r ../mpfr-*/ mpfr/
 cp -r ../gmp-*/ gmp/
-cp -r ../mpc-*/ mpc/
+rm -rf mpc/; cp -r ../mpc-*/ mpc/
 # update gcc dynamic linker to use the one installed in tools & removes /usr/include from the search path
 for file in \
   $(find gcc/config -name linux64.h -o -name linux.h -o -name sysv4.h)
 do
   cp -uv $file{,.orig}
-  sed -e 's@/lib\(64\)\?\(32\)\?/ld@$TOOLS&@g' \
-      -e 's@/usr@$TOOLS@g' $file.orig > $file
-  echo '
+  sed -e "s@/lib\(64\)\?\(32\)\?/ld@$TOOLS&@g" \
+      -e "s@/usr@$TOOLS@g" $file.orig > $file
+  echo "
 #undef STANDARD_STARTFILE_PREFIX_1
 #undef STANDARD_STARTFILE_PREFIX_2
-#define STANDARD_STARTFILE_PREFIX_1 "$TOOLS/lib/"
-#define STANDARD_STARTFILE_PREFIX_2 ""' >> $file
+#define STANDARD_STARTFILE_PREFIX_1 \"$TOOLS/lib/\"
+#define STANDARD_STARTFILE_PREFIX_2 \"\"" >> $file
   touch $file.orig
 done
 # prepare for build
-mkdir build/
+mkdir -p build/
 cd build/
 ../configure \
   --target=$LFS_TGT \
@@ -103,7 +106,7 @@ cp -rv dest/include/* $TOOLS/include/
 (
 echo "====== BUILDING GLIBC ======"
 cd glibc-*/
-mkdir build/
+mkdir -p build/
 cd build/
 # configure
 ../configure \
@@ -123,7 +126,7 @@ make install
 # Libstdc++
 (
 echo "====== BUILDING LIBSTDC++ ======"
-cd glibc-*/build/
+cd gcc-*/build/
 # configure
 ../libstdc++-v3/configure \
   --host=$LFS_TGT \
@@ -139,10 +142,15 @@ make
 make install
 )
 
+fi # =======================================================================================
+
 # Binutils - Pass 2
 (
 echo "====== BUILDING BINUTILS PASS 2 ======"
-cd binutils-*/build/
+cd binutils-*/
+rm -rf build/
+mkdir build/
+cd build/
 # configure
 CC=$LFS_TGT-gcc \
 AR=$LFS_TGT-ar \
@@ -152,7 +160,7 @@ RANLIB=$LFS_TGT-ranlib \
   --disable-nls \
   --disable-werror \
   --with-lib-path=$TOOLS/lib \
-  --with-sysroot \
+  --with-sysroot
 # build
 make
 # install
@@ -179,13 +187,13 @@ for file in \
   $(find gcc/config -name linux64.h -o -name linux.h -o -name sysv4.h)
 do
   cp -uv $file{,.orig}
-  sed -e 's@/lib\(64\)\?\(32\)\?/ld@$TOOLS&@g' \
-      -e 's@/usr@$TOOLS@g' $file.orig > $file
-  echo '
+  sed -e "s@/lib\(64\)\?\(32\)\?/ld@$TOOLS&@g" \
+      -e "s@/usr@$TOOLS@g" $file.orig > $file
+  echo "
 #undef STANDARD_STARTFILE_PREFIX_1
 #undef STANDARD_STARTFILE_PREFIX_2
-#define STANDARD_STARTFILE_PREFIX_1 "$TOOLS/lib/"
-#define STANDARD_STARTFILE_PREFIX_2 ""' >> $file
+#define STANDARD_STARTFILE_PREFIX_1 \"$TOOLS/lib/\"
+#define STANDARD_STARTFILE_PREFIX_2 \"\"" >> $file
   touch $file.orig
 done
 # prepare for build
