@@ -6,3 +6,4 @@ These are the programs you must intsall on the host system in order to build Mot
 * autotools
 * texinfo
 * gawk
+* bison

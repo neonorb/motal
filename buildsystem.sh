@@ -2,7 +2,16 @@
 
 set -e
 
+source tools.sh
+
 TOOLS=$LFS_BUILD_TOOLS
+
+# cleanup mounts
+umount -vflR $LFS_ROOT/* || true
+rm -f $LFS_ROOT/dev/console
+rm -f $LFS_ROOT/dev/null
+
+echo "creating"
 
 mkdir -p $LFS_ROOT/{dev,proc,sys,run}
 
@@ -16,19 +25,21 @@ mount -vt proc proc $LFS_ROOT/proc
 mount -vt sysfs sysfs $LFS_ROOT/sys
 mount -vt tmpfs tmpfs $LFS_ROOT/run
 
+mkdir -p $LFS_ROOT/$LFS_BUILD_TOOLS
 mount --bind $LFS_BUILD_TOOLS $LFS_ROOT/$LFS_BUILD_TOOLS
-mount --bind $LFS_BUILD_SOURES $LFS_ROOT/$LFS_BUILD_SOURCES
+mkdir -p $LFS_ROOT/$LFS_BUILD_SOURCES
+mount --bind $LFS_BUILD_SOURCES $LFS_ROOT/$LFS_BUILD_SOURCES
 
 if [ -h $LFS_ROOT/dev/shm ]; then
 mkdir -pv $LFS_ROOT/$(readlink $LFS_ROOT/dev/shm)
 fi
 
-cat << EOF | chroot $LFS_ROOT $TOOLS/bin/env -i \
+chroot $LFS_ROOT $TOOLS/bin/env -i \
   HOME=/root \
   TERM="$TERM" \
   PS1='\u:\w\$ ' \
   PATH=/bin:/usr/bin:/sbin:/usr/sbin:$TOOLS/bin \
-  /bin/bash --login +h
+  $TOOLS/bin/bash --login +h << EOF1 
 
 # inside chroot
 mkdir -pv /{bin,boot,etc/{opt,sysconfig},home,lib/firmware,mnt,opt}
@@ -53,26 +64,26 @@ ln -sv /run/lock /var/lock
 mkdir -pv /var/{opt,cache,lib/{color,misc,locate},local}
 
 # create essential files and symlinks
-ln -sv /tools/bin/{bash,cat,echo,pwd,stty} /bin
-ln -sv /tools/bin/perl /usr/bin
-ln -sv /tools/lib/libgcc_s.so{,.1} /usr/lib
-ln -sv /tools/lib/libstdc++.so{,.6} /usr/lib
-sed 's/tools/usr/' /tools/lib/libstdc++.la > /usr/lib/libstdc++.la
+ln -sv $TOOLS/bin/{bash,cat,echo,pwd,stty} /bin
+ln -sv $TOOLS/bin/perl /usr/bin
+ln -sv $TOOLS/lib/libgcc_s.so{,.1} /usr/lib
+ln -sv $TOOLS/lib/libstdc++.so{,.6} /usr/lib
+sed "s$TOOLS/usr/" $TOOLS/lib/libstdc++.la > /usr/lib/libstdc++.la
 ln -sv bash /bin/sh
 
 ln -sv /proc/self/mounts /etc/mtab
 
 # create users
-cat > /etc/passwd << INNER_EOF
+cat > /etc/passwd << EOF2
 root:x:0:0:root:/root:/bin/bash
 bin:x:1:1:bin:/dev/null:/bin/false
 daemon:x:6:6:Daemon User:/dev/null:/bin/false
 messagebus:x:18:18:D-Bus Message Daemon User:/var/run/dbus:/bin/false
 nobody:x:99:99:Unprivileged User:/dev/null:/bin/false
-INNER_EOF
+EOF2
 
 # create groups
-cat > /etc/group << INNER_EOF
+cat > /etc/group << EOF2
 root:x:0:
 bin:x:1:daemon
 sys:x:2:
@@ -96,7 +107,7 @@ input:x:24:
 mail:x:34:
 nogroup:x:99:
 user
-INNER_EOF
+EOF2
 
 # initialize log files
 touch /var/log/{btmp,lastlog,faillog,wtmp}
@@ -108,8 +119,7 @@ cd $LFS_BUILD_SOURCES
 
 # Linux API headers
 (
-echo "====== BUILDING LINUX API HEADERS ======"
-cd linux-*/
+prepare linux "Linux API headers"
 # build
 make mrproper
 # install
@@ -120,16 +130,14 @@ cp -rv dest/include/* /usr/include
 
 # Man pages
 (
-echo "====== BUILDING MAN PAGES ======"
-cd man-pages-*/
+prepare man-pages
 # build & install
 make install
 )
 
 # Glibc
 (
-echo "====== BUILDING GLIBC ======"
-cd glibc-*/
+prepare glibc
 # patch
 patch -Np1 -i ../glibc-2.24-fhs-1.patch
 mkdir -p build
@@ -172,7 +180,7 @@ localedef -i tr_TR -f UTF-8 tr_TR.UTF-8
 localedef -i zh_CN -f GB18030 zh_CN.GB18030
 make localedata/install-locales
 # whatever this is
-cat > /etc/nsswitch.conf << INNER_EOF
+cat > /etc/nsswitch.conf << EOF2
 # Begin /etc/nsswitch.conf
 passwd: files
 group: files
@@ -184,7 +192,7 @@ services: files
 ethers: files
 rpc: files
 # End /etc/nsswitch.conf
-INNER_EOF
+EOF2
 # time zone
 tar -xf ../../tzdata2016f.tar.gz
 ZONEINFO=/usr/share/zoneinfo
@@ -200,17 +208,17 @@ zic -d $ZONEINFO -p $TIME_ZONE
 unset ZONEINFO
 cp -v /ur/share/zoneinfo/$TIME_ZONE /etc/localtime
 # dynamic loader
-cat > /etc/ld.so.conf << INNER_EOF
+cat > /etc/ld.so.conf << EOF2
 # Begin /etc/ld.so.conf
 /usr/local/lib
 /opt/lib
-INNER_EOF
+EOF2
 # adjusting the toolchain
-mv -v /tools/bin/{ld,ld-old}
-mv -v /tools/$(uname -m)-pc-linux-gnu/bin/{ld,ld-old}
-mv -v /tools/bin/{ld-new,ld}
-ln -sv /tools/bin/ld /tools/$(uname -m)-pc-linux-gnu/bin/ld
-gcc -dumpspecs | sed -e 's@/tools@@g' \
+mv -v $TOOLS/bin/{ld,ld-old}
+mv -v $TOOLS/$(uname -m)-pc-linux-gnu/bin/{ld,ld-old}
+mv -v $TOOLS/bin/{ld-new,ld}
+ln -sv $TOOLS/bin/ld $TOOLS/$(uname -m)-pc-linux-gnu/bin/ld
+gcc -dumpspecs | sed -e "s@/$TOOLS@@g" \
   -e '/\*startfile_prefix_spec:/{n;s@.*@/usr/lib/ @}' \
   -e '/\*cpp:/{n;s@$@ -isystem /usr/include@}' > \
   `dirname $(gcc --print-libgcc-file-name)`/specs
@@ -218,8 +226,7 @@ gcc -dumpspecs | sed -e 's@/tools@@g' \
 
 # Zlib
 (
-echo "====== BUILDING ZLIB ======"
-cd zlib-*/
+prepare zlib
 # configure
 ./configure --prefix=/usr
 # build
@@ -234,8 +241,7 @@ ln -sfv ../../lib/$(readlink /usr/lib/libz.so) /usr/lib/libz.so
 
 # File
 (
-echo "====== BUILDING FILE ======"
-cd file-*/
+prepare file
 # configure
 ./configure --prefix=/usr
 # build
@@ -248,8 +254,7 @@ make install
 
 # Binutils
 (
-echo "====== BUILDING FILE ======"
-cd binutils-*/
+prepare binutils
 expect -c "spawn ls"
 cd build/
 # configure
@@ -266,8 +271,7 @@ make tooldir=/usr install
 
 # GMP
 (
-echo "====== BUILDING GMP ======"
-cd gmp-*/
+prepare gmp
 # configure
 ./configure --prefix=/usr \
   --enable-cxx \
@@ -286,8 +290,7 @@ make install-html
 
 # MPFR
 (
-echo "====== BUILDING MPFR ======"
-cd mpfr-*/
+prepare mpfr
 # configure
 ./configure --prefix=/usr \
   --disable-static \
@@ -305,8 +308,7 @@ make install-html
 
 # MPC
 (
-echo "====== BUILDING MPC ======"
-cd mpc-*/
+prepare mpc
 # configure
 ./configure --prefix=/usr \
   --disable-static \
@@ -323,8 +325,9 @@ make install-html
 
 # GCC
 (
-echo "====== BUILDING GCC ======"
-cd gcc-*/build/
+prepare gcc
+mkdir build/
+cd build/
 # configure
 SED=sed ../configure --prefix=/usr \
   --enable-languages=c,c++ \
@@ -349,12 +352,11 @@ mv -v /usr/lib/*gdb.py /usr/share/gdb/auto-load/usr/lib
 
 # Bzip
 (
-echo "====== BUILDING BZIP ======"
-cd bzip2-*/
+prepare bzip2
 # patch it
 patch -Np1 -i ../bzip2-1.0.6-install_docs-1.patch
 # prepare for compile
-sed -i 's@\(ln -s -f \)$(PREFIX)/bin/@\1@' Makefile
+sed -i 's@\(ln -s -f \)\$(PREFIX)/bin/@\1@' Makefile
 sed -i "s@(PREFIX)/man@(PREFIX)/share/man@g" Makefile
 make -f Makefile-libbz2_so
 make clean
@@ -372,8 +374,7 @@ ln -sv bzip2 /bin/bzcat
 
 # Pkg-config
 (
-echo "====== BUILDING PKG-CONFIG ======"
-cd pkg-config-*/
+prepare pkg-config
 # configure
 ./configure --prefix=/usr \
   --with-internal-glib \
@@ -390,8 +391,7 @@ make install
 
 # Ncurses
 (
-echo "====== BUILDING NCURSES ======"
-cd ncurses-*/
+prepare ncurses
 # prepare for compile
 sed -i '/LIBTOOL_INSTALL/d' c++/Makefile.in
 ./configure --prefix=/usr \
@@ -421,8 +421,7 @@ cp -v -R doc/* /usr/share/doc/ncurses-6.0
 
 # Attr
 (
-echo "====== BUILDING ATTR ======"
-cd attr-*/
+prepare attr
 # prepare for compile
 sed -i -e 's|/@pkg_name@|&-@pkg_version@|' include/builddefs.in
 sed -i -e "/SUBDIRS/s|man[25]||g" man/Makefile
@@ -442,8 +441,7 @@ ln -sfv ../../lib/$(readlink /usr/lib/libattr.so) /usr/lib/libattr.so
 
 # Acl
 (
-echo "====== BUILDING ACL ======"
-cd acl-*/
+prepare acl
 # prepare for installation
 sed -i -e 's|/@pkg_name@|&-@pkg_version@|' include/builddefs.in
 sed -i "s:| sed.*::g" test/{sbits-restore,cp,misc}.test
@@ -464,8 +462,7 @@ ln -sfv ../../lib/$(readlink /usr/lib/libacl.so) /usr/lib/libacl.so
 
 # Libcap
 (
-echo "====== BUILDING LIBCAP ======"
-cd libcap-*/
+prepare libcap
 # prepare for installation
 sed -i '/install.*STALIBNAME/d' libcap/Makefile
 # build
@@ -479,8 +476,7 @@ ln -sfv ../../lib/$(readlink /usr/lib/libcap.so) /usr/lib/libcap.so
 
 # Sed
 (
-echo "====== BUILDING SED ======"
-cd sed-*/
+prepare sed
 # prepare for installation
 ./configure --prefix=/usr --bindir=/bin --htmldir=/usr/share/doc/sed-4.2.2
 # build
@@ -495,10 +491,9 @@ make -C doc install-html
 
 # Shadow
 (
-echo "====== BUILDING SHADOW ======"
-cd shadow-*/
+prepare shadow
 # prepare for installation
-sed -i 's/groups$(EXEEXT) //' src/Makefile.in
+sed -i 's/groups\$(EXEEXT) //' src/Makefile.in
 find man -name Makefile.in -exec sed -i 's/groups\.1 / /' {} \;
 find man -name Makefile.in -exec sed -i 's/getspnam\.3 / /' {} \;
 find man -name Makefile.in -exec sed -i 's/passwd\.5 / /' {} \;
@@ -514,16 +509,15 @@ mv -v /usr/bin/passwd /bin
 # configure
 pwconv
 grpconv
-passwd root <<INNER_EOF
+passwd root << EOF2
 password
 password
-INNER_EOF
+EOF2
 )
 
 # Psmisc
 (
-echo "====== BUILDING PSMISC ======"
-cd psmisc-*/
+prepare psmisc
 # build
 make
 # install
@@ -534,8 +528,7 @@ mv -v /usr/bin/killall /bin
 
 # Iana-Etc
 (
-echo "====== BUILDING IANA-ETC ======"
-cd iana-etc-*/
+prepare iana-etc
 # build
 make
 # install
@@ -544,8 +537,7 @@ make install
 
 # M4
 (
-echo "====== BUILDING M4 ======"
-cd m4-*/
+prepare m4
 # prepare for installation
 ./configure --prefix=/usr
 # build
@@ -558,8 +550,7 @@ make install
 
 # Bison
 (
-echo "====== BUILDING BISON ======"
-cd bison-*/
+prepare bison
 # prepare for installation
 ./configure --prefix=/usr --docdir=/usr/share/doc/bison-3.0.4
 # build
@@ -570,8 +561,7 @@ make install
 
 # Flex
 (
-echo "====== BUILDING FLEX ======"
-cd flex-*/
+prepare flex
 # prepare for installation
 ./configure --prefix=/usr --docdir=/usr/share/doc/flex-2.6.1
 # build
@@ -585,8 +575,7 @@ ln -sv flex /usr/bin/lex
 
 # Grep
 (
-echo "====== BUILDING GREP ======"
-cd grep-*/
+prepare grep
 # prepare for installation
 ./configure --prefix=/usr --bindir=/bin
 # build
@@ -599,8 +588,7 @@ make install
 
 # Readline
 (
-echo "====== BUILDING READLINE ======"
-cd readline-*/
+prepare readline
 # prepare for installation
 patch -Np1 -i ../readline-6.3-upstream_fixes-3.patch
 sed -i '/MV.*old/d' Makefile.in
@@ -620,8 +608,7 @@ install -v -m644 doc/*.{ps,pdf,html,dvi} /usr/share/doc/readline-6.3
 
 # Bash
 (
-echo "====== BUILDING BASH ======"
-cd bash-*/
+prepare bash
 # prepare for installation
 patch -Np1 -i ../bash-4.3.30-upstream_fixes-3.patch
 ./configure --prefix=/usr \
@@ -640,8 +627,7 @@ mv -vf /usr/bin/bash /bin
 
 # Bc
 (
-echo "====== BUILDING BC ======"
-cd bc-*/
+prepare bc
 # prepare for installation
 patch -Np1 -i ../bc-1.06.95-memory_leak-1.patch
 ./configure --prefix=/usr \
@@ -658,8 +644,7 @@ make install
 
 # Libtool
 (
-echo "====== BUILDING LIBTOOL ======"
-cd libtool-*/
+prepare libtool
 # prepare for installation
 ./configure --prefix=/usr
 # build
@@ -672,8 +657,7 @@ make install
 
 # Gperf
 (
-echo "====== BUILDING GPERF ======"
-cd gperf-*/
+prepare gperf
 # prepare for installation
 ./configure --prefix=/usr --docdir=/usr/share/doc/gperf-3.0.4
 # build
@@ -686,8 +670,7 @@ make install
 
 # Expat
 (
-echo "====== BUILDING EXPAT ======"
-cd expat-*/
+prepare expat
 # prepare for installation
 ./configure --prefix=/usr --disable-static
 # build
@@ -702,8 +685,7 @@ install -v -m644 doc/*.{html,png,css} /usr/share/doc/expat-2.2.0
 
 # Inetutils
 (
-echo "====== BUILDING INETUTILS ======"
-cd inetutils-*/
+prepare inetutils
 # prepare for installation
 ./configure --prefix=/usr \
   --localstatedir=/var \
@@ -726,8 +708,7 @@ mv -v /usr/bin/ifconfig /sbin
 
 # Perl
 (
-echo "====== BUILDING PERL ======"
-cd perl-*/
+prepare perl
 # prepare for installation
 echo "127.0.0.1 localhost $(hostname)" > /etc/hosts
 export BUILD_ZLIB=False
@@ -749,8 +730,7 @@ unset BUILD_ZLIB BUILD_BZIP2
 
 # XML::Parser
 (
-echo "====== BUILDING XML::Parser ======"
-cd XML-Parser-*/
+prepare XML-Parser
 # prepare for installation
 perl Makefile.PL
 # build
@@ -763,8 +743,7 @@ make install
 
 # Intltool
 (
-echo "====== BUILDING INTLTOOL ======"
-cd intltool-*/
+prepare intltool
 # prepare for installation
 sed -i 's:\\\${:\\\$\\{:' intltool-update.in
 ./configure --prefix=/usr
@@ -779,8 +758,7 @@ install -v -Dm644 doc/I18N-HOWTO /usr/share/doc/intltool-0.51.0/I18N-HOWTO
 
 # Autoconf
 (
-echo "====== BUILDING AUTOCONF ======"
-cd autoconf-*/
+prepare autoconf
 # prepare for installation
 ./configure --prefix=/usr
 # build
@@ -793,8 +771,7 @@ make install
 
 # Automake
 (
-echo "====== BUILDING AUTOMAKE ======"
-cd automake-*/
+prepare automake
 # prepare for installation
 sed -i 's:/\\\${:/\\\$\\{:' bin/automake.in
 ./configure --prefix=/usr --docdir=/usr/share/doc/automake-1.15
@@ -809,8 +786,7 @@ make install
 
 # Xz
 (
-echo "====== BUILDING XZ ======"
-cd xz-*/
+prepare xz
 # prepare for installation
 sed -e '/mf\.buffer = NULL/a next->coder->mf.size = 0;' \
   -i src/liblzma/lz/lz_encoder.c
@@ -830,8 +806,7 @@ ln -svf ../../lib/$(readlink /usr/lib/liblzma.so) /usr/lib/liblzma.so
 
 # Kmod
 (
-echo "====== BUILDING KMOD ======"
-cd kmod-*/
+prepare kmod
 # prepare for installation
 ./configure --prefix=/usr \
   --bindir=/bin \
@@ -851,8 +826,7 @@ ln -sfv kmod /bin/lsmod
 
 # Gettext
 (
-echo "====== BUILDING GETTEXT ======"
-cd gettext-*/
+prepare gettext
 # perpare for installation
 ./configure --prefix=/usr \
   --disable-static \
@@ -868,8 +842,7 @@ chmod -v 0755 /usr/lib/preloadable_libintl.so
 
 # Procps-ng
 (
-echo "====== BUILDING PROCPS-NG ======"
-cd procps-ng-*/
+prepare procps-ng
 # prepare for installation
 ./configure --prefix=/usr \
   --exec-prefix= \
@@ -890,15 +863,14 @@ ln -sfv ../../lib/$(readlink /usr/lib/libprocps.so) /usr/lib/libprocps.so
 
 # E2fsprogs
 (
-echo "====== BUILDING E2FSPROGS ======"
-cd e2fsprogs-*/
+prepare e2fsprogs
 # prepare for installation
 sed -i -e 's:\[\.-\]::' tests/filter.sed
 mkdir -v build
 cd build
-LIBS=-L/tools/lib \
-CFLAGS=-I/tools/include \
-PKG_CONFIG_PATH=/tools/lib/pkgconfig \
+LIBS=-L$TOOLS/lib \
+CFLAGS=-I$TOOLS/include \
+PKG_CONFIG_PATH=$TOOLS/lib/pkgconfig \
 ../configure --prefix=/usr \
   --bindir=/bin \
   --with-root-prefix="" \
@@ -910,8 +882,8 @@ PKG_CONFIG_PATH=/tools/lib/pkgconfig \
 # build
 make
 # test
-ln -sfv /tools/lib/lib{blk,uu}id.so.1 lib
-make LD_LIBRARY_PATH=/tools/lib check
+ln -sfv $TOOLS/lib/lib{blk,uu}id.so.1 lib
+make LD_LIBRARY_PATH=$TOOLS/lib check
 # install
 make install
 make install-libs
@@ -926,8 +898,7 @@ install-info --dir-file=/usr/share/info/dir /usr/share/info/com_err.info
 
 # Coreutils
 (
-echo "====== BUILDING COREUTILS ======"
-cd coreutils-*/
+prepare coreutils
 # prepare for installation
 patch -Np1 -i ../coreutils-8.25-i18n-2.patch
 FORCE_UNSAFE_CONFIGURE=1 ./configure \
@@ -955,8 +926,7 @@ mv -v /usr/bin/{head,sleep,nice,test,[} /bin
 
 # Diffutils
 (
-echo "====== BUILDING DIFFUTILS ======"
-cd diffutils-*/
+prepare diffutils
 # prepare for installation
 sed -i 's:= @mkdir_p@:= /bin/mkdir -p:' po/Makefile.in.in
 ./configure --prefix=/usr
@@ -970,8 +940,7 @@ make install
 
 # Gawk
 (
-echo "====== BUILDING GAWK ======"
-cd gawk-*/
+prepare gawk
 # prepare for installation
 ./configure --prefix=/usr
 # build
@@ -986,8 +955,7 @@ cp -v doc/{awkforai.txt,*.{eps,pdf,jpg}} /usr/share/doc/gawk-4.1.3
 
 # Findutils
 (
-echo "====== BUILDING FINDUTILS ======"
-cd findutils-*/
+prepare findutils
 # prepare for installation
 ./configure --prefix=/usr --localstatedir=/var/lib/locate
 # build
@@ -1002,8 +970,7 @@ sed -i 's|find:=${BINDIR}|find:=/bin|' /usr/bin/updatedb
 
 # Groff
 (
-echo "====== BUILDING GROFF ======"
-cd groff-*/
+prepare groff
 # prepare for installation
 PAGE=letter ./configure --prefix=/usr
 # build
@@ -1014,8 +981,7 @@ make install
 
 # GRUB
 (
-echo "====== BUILDING GRUB ======"
-cd grub-*/
+prepare grub
 # prepare for installation
 ./configure --prefix=/usr \
   --sbindir=/sbin \
@@ -1030,8 +996,7 @@ make install
 
 # Less
 (
-echo "====== BUILDING LESS ======"
-cd less-*/
+prepare less
 # prepare for installation
 ./configure --prefix=/usr --sysconfdir=/etc
 # build
@@ -1042,8 +1007,7 @@ make install
 
 # Gzip
 (
-echo "====== BUILDING GZIP ======"
-cd gzip-*/
+prepare gzip
 # prepare for installa
 ./configure --prefix=/usr --sysconfdir=/etction
 # build
@@ -1057,8 +1021,7 @@ mv -v /usr/bin/gzip /bin
 
 # IPRoute2
 (
-echo "====== BUILDING IPROUTE2 ======"
-cd iproute2-*/
+prepare iproute2
 # prepare for installation
 mv -v /usr/bin/gzip /bin
 sed -i 's/m_ipt.o//' tc/Makefile
@@ -1070,13 +1033,12 @@ make DOCDIR=/usr/share/doc/iproute2-4.7.0 install
 
 # Kbd
 (
-echo "====== BUILDING KBD ======"
-cd kbd-*/
+prepare kbd
 # prepare for installation
 patch -Np1 -i ../kbd-2.0.3-backspace-1.patch
 sed -i 's/\(RESIZECONS_PROGS=\)yes/\1no/g' configure
 sed -i 's/resizecons.8 //' docs/man/man8/Makefile.in
-PKG_CONFIG_PATH=/tools/lib/pkgconfig ./configure --prefix=/usr --disable-vlock
+PKG_CONFIG_PATH=$TOOLS/lib/pkgconfig ./configure --prefix=/usr --disable-vlock
 # build
 make
 # test
@@ -1089,10 +1051,9 @@ cp -R -v docs/doc/* /usr/share/doc/kbd-2.0.3
 
 # Libpipeline
 (
-echo "====== BUILDING LIBPIPELINE ======"
-cd libpipeline-*/
+prepare libpipeline
 # prepare for installation
-PKG_CONFIG_PATH=/tools/lib/pkgconfig ./configure --prefix=/usr
+PKG_CONFIG_PATH=$TOOLS/lib/pkgconfig ./configure --prefix=/usr
 # build
 make
 # test
@@ -1103,8 +1064,7 @@ make install
 
 # Make
 (
-echo "====== BUILDING MAKE ======"
-cd make-*/
+prepare make
 # prepare for installation
 ./configure --prefix=/usr
 # build
@@ -1117,8 +1077,7 @@ make install
 
 # Patch
 (
-echo "====== BUILDING PATCH ======"
-cd patch-*/
+prepare patch
 # prepare for installation
 ./configure --prefix=/usr
 # build
@@ -1131,8 +1090,7 @@ make install
 
 # Sysklogd
 (
-echo "====== BUILDING SYSKLOGD ======"
-cd sysklogd-*/
+prepare sysklogd
 # prepare for installation
 sed -i '/Error loading kernel symbols/{n;n;d}' ksym_mod.c
 sed -i 's/union wait/int/' syslogd.c
@@ -1141,7 +1099,7 @@ make
 # install
 make BINDIR=/sbin install
 # configure
-cat > /etc/syslog.conf << INNER_EOF
+cat > /etc/syslog.conf << EOF2
 # Begin /etc/syslog.conf
 auth,authpriv.* -/var/log/auth.log
 *.*;auth,authpriv.none -/var/log/sys.log
@@ -1151,13 +1109,12 @@ mail.* -/var/log/mail.log
 user.* -/var/log/user.log
 *.emerg *
 # End /etc/syslog.conf
-INNER_EOF
+EOF2
 )
 
 # Sysvinit
 (
-echo "====== BUILDING SYSVINIT ======"
-cd sysvinit-*/
+prepare sysvinit
 # prepare for installation
 patch -Np1 -i ../sysvinit-2.88dsf-consolidated-1.patch
 # build
@@ -1168,15 +1125,14 @@ make -C src install
 
 # Eudev
 (
-echo "====== BUILDING EUDEV ======"
-cd eudev-*/
+prepare eudev
 # prepare for installation
 sed -r -i 's|/usr(/bin/test)|\1|' test/udev-test.pl
-cat > config.cache << INNER_EOF
+cat > config.cache << EOF2
 HAVE_BLKID=1
 BLKID_LIBS="-lblkid"
-BLKID_CFLAGS="-I/tools/include"
-INNER_EOF
+BLKID_CFLAGS="-I$TOOLS/include"
+EOF2
 ./configure --prefix=/usr \
   --bindir=/sbin \
   --sbindir=/sbin \
@@ -1189,23 +1145,22 @@ INNER_EOF
   --disable-static \
   --config-cache
 # build
-LIBRARY_PATH=/tools/lib make
+LIBRARY_PATH=$TOOLS/lib make
 # test
 mkdir -pv /lib/udev/rules.d
 mkdir -pv /etc/udev/rules.d
-make LD_LIBRARY_PATH=/tools/lib check
+make LD_LIBRARY_PATH=$TOOLS/lib check
 # install
-make LD_LIBRARY_PATH=/tools/lib install
+make LD_LIBRARY_PATH=$TOOLS/lib install
 tar -xvf ../udev-lfs-20140408.tar.bz2
 make -f udev-lfs-20140408/Makefile.lfs install
 # configure Eudev
-LD_LIBRARY_PATH=/tools/lib udevadm hwdb --update
+LD_LIBRARY_PATH=$TOOLS/lib udevadm hwdb --update
 )
 
 # Util-linux
 (
-echo "====== BUILDING UTIL-LINUX ======"
-cd util-linux-*/
+prepare util-linux
 # prepare for installation
 mkdir -pv /var/lib/hwclock
 ./configure ADJTIME_PATH=/var/lib/hwclock/adjtime \
@@ -1232,8 +1187,7 @@ make install
 
 # Man-DB
 (
-echo "====== BUILDING MAN-DB ======"
-cd man-db-*/
+prepare man-db
 # prepare for installation
 ./configure --prefix=/usr \
   --docdir=/usr/share/doc/man-db-2.7.5 \
@@ -1253,8 +1207,7 @@ sed -i "s:man root:root root:g" /usr/lib/tmpfiles.d/man-db.conf
 
 # Tar
 (
-echo "====== BUILDING TAR ======"
-cd tar-*/
+prepare tar
 # prepare for installation
 FORCE_UNSAFE_CONFIGURE=1 \
 ./configure --prefix=/usr \
@@ -1270,8 +1223,7 @@ make -C doc install-html docdir=/usr/share/doc/tar-1.29
 
 # Texinfo
 (
-echo "====== BUILDING TEXINFO ======"
-cd texinfo-*/
+prepare texinfo
 # prepare for installation
 ./configure --prefix=/usr --disable-static
 # build
@@ -1291,8 +1243,7 @@ popd
 
 # Nano
 (
-echo "====== BUILDING NANO ======"
-cd nano-*/
+prepare nano
 # prepare for installation
 ./configure --prefix=/usr \
   --sysconfdir=/etc \
@@ -1305,7 +1256,7 @@ make install
 install -v -m644 doc/nanorc.sample /etc
 install -v -m644 doc/texinfo/nano.html /usr/share/doc/nano-2.6.3
 # configure nano
-cat > /etc/nanorc << INNER_EOF
+cat > /etc/nanorc << EOF2
 set autoindent
 set const
 set fill 72
@@ -1315,27 +1266,27 @@ set nohelp
 set regexp
 set smooth
 set suspend
-INNER_EOF
+EOF2
 )
 
-logout
-EOF # exit chroot
+# exit chroot
+EOF1
 
-cat EOF | chroot $LFS /tools/bin/env -i \
+chroot $LFS $TOOLS/bin/env -i \
   HOME=/root TERM=$TERM PS1='\u:\w\$ ' \
   PATH=/bin:/usr/bin:/sbin:/usr/sbin \
-  /tools/bin/bash --login
+  $TOOLS/bin/bash --login << EOF1
 # remove debugging symbols
-/tools/bin/find /usr/lib -type f -name \*.a \
-  -exec /tools/bin/strip --strip-debug {} ';'
-/tools/bin/find /lib /usr/lib -type f -name \*.so* \
-  -exec /tools/bin/strip --strip-unneeded {} ';'
-/tools/bin/find /{bin,sbin} /usr/{bin,sbin,libexec} -type f \
-  -exec /tools/bin/strip --strip-all {} ';'
+$TOOLS/bin/find /usr/lib -type f -name \*.a \
+  -exec $TOOLS/bin/strip --strip-debug {} ';'
+$TOOLS/bin/find /lib /usr/lib -type f -name \*.so* \
+  -exec $TOOLS/bin/strip --strip-unneeded {} ';'
+$TOOLS/bin/find /{bin,sbin} /usr/{bin,sbin,libexec} -type f \
+  -exec $TOOLS/bin/strip --strip-all {} ';'
 # remove temporary files
 rm -rf /tmp/*
 # remove temporary tools
-rm -rf /tools/
+rm -rf $TOOLS/
 # remove unneeded libraries
 rm -f /usr/lib/lib{bfd,opcodes}.a
 rm -f /usr/lib/libbz2.a
@@ -1344,27 +1295,27 @@ rm -f /usr/lib/libltdl.a
 rm -f /usr/lib/libfl.a
 rm -f /usr/lib/libfl_pic.a
 rm -f /usr/lib/libz.a
-logout
-EOF # exit chroot
 
-cat EOF | chroot $LFS /tools/bin/env -i \
+# exit chroot
+EOF1
+
+chroot $LFS $TOOLS/bin/env -i \
   HOME=/root TERM=$TERM PS1='\u:\w\$ ' \
   PATH=/bin:/usr/bin:/sbin:/usr/sbin \
-  /tools/bin/bash --login
+  $TOOLS/bin/bash --login << EOF1
 
 cd $LFS_BUILD_SOURCES
 
 # LFS-Bootscripts
 (
-echo "====== BUILDING LFS-BOOTSCRIPTS ======"
-cd lfs-bootscripts-*/
+prepare lfs-bootscripts
 make install
 )
 
 bash /lib/udev/init-net-rules.sh
 
 # setup network interface
-cat > /etc/sysconfig/ifconfig.eth0 << INNER_EOF
+cat > /etc/sysconfig/ifconfig.eth0 << EOF2
 ONBOOT=yes
 IFACE=eth0
 SERVICE=ipv4-static
@@ -1372,23 +1323,23 @@ IP=192.168.1.2
 GATEWAY=192.168.1.1
 PREFIX=24
 BROADCAST=192.168.1.255
-INNER_EOF
+EOF2
 
 # setup DNS
-cat > /etc/resolv.conf << INNER_EOF
+cat > /etc/resolv.conf << EOF2
 nameserver 8.8.4.4
 nameserver 8.8.8.8
-INNER_EOF
+EOF2
 
 # setup hosts
 HOSTNAME="myhostname"
 echo $HOSTNAME > /etc/hostname
-cat > /etc/hosts << INNER_EOF
+cat > /etc/hosts << EOF2
 127.0.0.1 $HOSTNAME
-INNER_EOF
+EOF2
 
 # setup Sysvinit
-cat > /etc/inittab << INNER_EOF
+cat > /etc/inittab << EOF2
 # Begin /etc/inittab
 id:3:initdefault:
 si::sysinit:/etc/rc.d/init.d/rc S
@@ -1414,24 +1365,24 @@ tty4 9600
 tty5 9600
 tty6 9600
 # End /etc/inittab
-INNER_EOF
+EOF2
 
 # setup clock
-cat > /etc/sysconfig/clock << INNER_EOF
+cat > /etc/sysconfig/clock << EOF2
 # Begin /etc/sysconfig/clock
 UTC=1
 # Set this to any options you might need to give to hwclock,
 # such as machine hardware clock type for Alphas.
 CLOCKPARAMS=
 # End /etc/sysconfig/clock
-INNER_EOF
+EOF2
 
 # setup profile lang
-cat > /etc/profile << INNER_EOF
+cat > /etc/profile << EOF2
 export LANG=en_US.UTF-8
-INNER_EOF
+INNER_EOF2
 
-cat > /etc/inputrc << INNER_EOF
+cat > /etc/inputrc << EOF2
 # Begin /etc/inputrc
 # Modified by Chris Lynn <roryo@roryo.dynup.net>
 # Allow the command prompt to wrap to the next line
@@ -1463,17 +1414,17 @@ set bell-style none
 "\e[H": beginning-of-line
 "\e[F": end-of-line
 # End /etc/inputrc
-INNER_EOF
+EOF2
 
-cat > /etc/shells << INNER_EOF
+cat > /etc/shells << EOF2
 # Begin /etc/shells
 /bin/sh
 /bin/bash
 # End /etc/shells
-INNER_EOF
+EOF2
 
 # make it bootable
-cat > /etc/fstab << INNER_EOF
+cat > /etc/fstab << EOF2
 /dev/sda2 / ext4 defaults 1 1
 /dev/sda3 swap swap pri=1 0 0
 proc /proc proc nosuid,noexec,nodev 0 0
@@ -1481,12 +1432,11 @@ sysfs /sys sysfs nosuid,noexec,nodev 0 0
 devpts /dev/pts devpts gid=5,mode=620 0 0
 tmpfs /run tmpfs defaults 0 0
 devtmpfs /dev devtmpfs mode=0755,nosuid 0 0
-INNER_EOF
+EOF2
 
 # Linux
 (
-echo "====== BUILDING LINUX ======"
-cd linux-*/
+prepare linux
 # prepare for installation
 make mrproper
 make menuconfig
@@ -1500,12 +1450,12 @@ cp -v .config /boot/config-4.7.2
 install -d /usr/share/doc/linux-4.7.2
 cp -r Documentation/* /usr/share/doc/linux-4.7.2
 install -v -m755 -d /etc/modprobe.d
-cat > /etc/modprobe.d/usb.conf << INNER_EOF
+cat > /etc/modprobe.d/usb.conf << EOF2
 # Begin /etc/modprobe.d/usb.conf
 install ohci_hcd /sbin/modprobe ehci_hcd ; /sbin/modprobe -i ohci_hcd ; true
 install uhci_hcd /sbin/modprobe ehci_hcd ; /sbin/modprobe -i uhci_hcd ; true
 # End /etc/modprobe.d/usb.conf
-INNER_EOF
+EOF2
 )
 
 # install GRUB
@@ -1513,7 +1463,7 @@ cd /tmp
 grub-mkrescue --output=grub-img.iso
 xorriso -as cdrecord -v dev=/dev/cdrw blank=as_needed grub-img.iso
 grub-install /dev/sda
-cat > /boot/grub/grub.cfg << INNER_EOF
+cat > /boot/grub/grub.cfg << EOF2
 # Begin /boot/grub/grub.cfg
 set default=0
 set timeout=5
@@ -1524,23 +1474,23 @@ set root=(hd0,2)
 menuentry "GNU/Linux, Linux 4.7.2-lfs-7.10" {
     linux /boot/vmlinuz-4.7.2-lfs-7.10 root=/dev/sda2 ro
 }
-INNER_EOF
+EOF2
 
 # write release info
-cat > /etc/lsb-release << INNER_EOF
+cat > /etc/lsb-release << EOF2
 DISTRIB_ID="Linux From Scratch"
 DISTRIB_RELEASE="7.10"
 DISTRIB_CODENAME="Christopher Smith"
 DISTRIB_DESCRIPTION="Linux From Scratch"
-INNER_EOF
+EOF2
 
-logout
-EOF
+EOF1
 
 # cleanup mounts
-umount -v $LFS_ROOT/dev/pts
-umount -v $LFS_ROOT/dev
-umount -v $LFS_ROOT/run
-umount -v $LFS_ROOT/proc
-umount -v $LFS_ROOT/sys
-
+umount -vfl $LFS_ROOT/dev/pts
+umount -vfl $LFS_ROOT/dev
+umount -vfl $LFS_ROOT/run
+umount -vfl $LFS_ROOT/proc
+umount -vfl $LFS_ROOT/sys
+umount -vfl $LFS_ROOT/$LFS_BUILD_TOOLS
+umount -vfl $LFS_ROOT/$LFS_BUILD_SOURCES

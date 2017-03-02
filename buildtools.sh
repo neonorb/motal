@@ -2,6 +2,8 @@
 
 set -e
 
+source tools.sh
+
 cd $LFS_BUILD_SOURCES
 
 mkdir -p $LFS_BUILD_TOOLS
@@ -14,14 +16,11 @@ TOOLS=$LFS_BUILD_TOOLS
 PATH=$TOOLS/bin/:/bin/:/usr/bin/
 LFS_TGT=$(uname -m)-lfs-linux-gnu
 
-if true; then # ==============================================================================s
-
 # binutils
 (
-echo "====== BUILDING BINUTILS ======"
-cd binutils-*/
+prepare binutils
 rm -rf build/
-mkdir -p build/
+mkdir build/
 cd build/
 # configure
 ../configure --prefix=$TOOLS \
@@ -42,8 +41,7 @@ make install
 
 # GCC
 (
-echo "====== BUILDING GCC ======"
-cd gcc-*/
+prepare gcc
 # copy package folders
 cp -r ../mpfr-*/ mpfr/
 cp -r ../gmp-*/ gmp/
@@ -63,7 +61,7 @@ do
   touch $file.orig
 done
 # prepare for build
-mkdir -p build/
+mkdir build/
 cd build/
 ../configure \
   --target=$LFS_TGT \
@@ -95,8 +93,7 @@ make install
 
 # Linux API headers
 (
-echo "====== BUILDING LINUX API HEADERS ======"
-cd linux-*/
+prepare linux "Linux API headers"
 make mrproper
 make INSTALL_HDR_PATH=dest headers_install
 cp -rv dest/include/* $TOOLS/include/
@@ -104,9 +101,8 @@ cp -rv dest/include/* $TOOLS/include/
 
 # Glibc
 (
-echo "====== BUILDING GLIBC ======"
-cd glibc-*/
-mkdir -p build/
+prepare glibc
+mkdir build/
 cd build/
 # configure
 ../configure \
@@ -125,8 +121,9 @@ make install
 
 # Libstdc++
 (
-echo "====== BUILDING LIBSTDC++ ======"
-cd gcc-*/build/
+prepare gcc libstdc++
+mkdir build/
+cd build/
 # configure
 ../libstdc++-v3/configure \
   --host=$LFS_TGT \
@@ -142,13 +139,9 @@ make
 make install
 )
 
-fi # =======================================================================================
-
 # Binutils - Pass 2
 (
-echo "====== BUILDING BINUTILS PASS 2 ======"
-cd binutils-*/
-rm -rf build/
+prepare binutils "binutils pass 2"
 mkdir build/
 cd build/
 # configure
@@ -173,8 +166,7 @@ cp -v ld/ld-new $TOOLS/bin
 
 # GCC Pass 2
 (
-echo "====== BUILDING GCC PASS 2 ======"
-cd gcc-*/
+prepare gcc "gcc pass 2"
 # copy package folders
 cp -r ../mpfr-*/ mpfr/
 cp -r ../gmp-*/ gmp/
@@ -197,6 +189,7 @@ do
   touch $file.orig
 done
 # prepare for build
+mkdir build/
 cd build/
 CC=$LFS_TGT-gcc \
 CXX=$LFS_TGT-g++ \
@@ -220,8 +213,8 @@ ln -sv gcc $TOOLS/bin/cc
 
 # Tcl-core
 (
-echo "====== BUILDING TCL-CORE ======"
-cd tcl*/unix/
+prepare tcl
+cd unix/
 # prepare for build
 ./configure --prefix=$TOOLS
 # build
@@ -237,8 +230,7 @@ ln -sv tclsh8.6 $TOOLS/bin/tclsh
 
 # Expect
 (
-echo "====== BUILDING EXPECT ======"
-cd expect*/
+prepare expect
 cp -v configure{,.orig}
 # configure
 sed 's:/usr/local/bin:/bin:' configure.orig > configure
@@ -255,8 +247,7 @@ make SCRIPTS="" install
 
 # DejaGNU
 (
-echo "====== BUILDING DEJAGNU ======"
-cd dejagnu-*/
+prepare dejagnu
 # configure
 ./configure --prefix=$TOOLS
 # build & install
@@ -267,8 +258,7 @@ make check
 
 # Check
 (
-echo "====== BUILDING CHECK ======"
-cd check-*/
+prepare check
 # configure
 PKG_CONFIG= ./configure --prefix=$TOOLS
 # build
@@ -281,8 +271,7 @@ make install
 
 # Ncurses
 (
-echo "====== BUILDING NCURSES ======"
-cd ncurses-*/
+prepare ncurses
 # configure
 sed -i s/mawk// configure
 ./configure --prefix=$TOOLS \
@@ -295,8 +284,7 @@ sed -i s/mawk// configure
 
 # Bash
 (
-echo "====== BUILDING BASH ======"
-cd bash-*/
+prepare bash
 # configure
 ./configure --prefix=$TOOLS --without-bash-malloc
 # build
@@ -310,8 +298,7 @@ ln -s bash $TOOLS/bin/sh
 
 # Bzip
 (
-echo "====== BUILDING BZIP ======"
-cd bzip2-*/
+prepare bzip2
 # build
 make
 # install
@@ -320,36 +307,33 @@ make PREFIX=$TOOLS install
 
 # Coreutils
 (
-echo "====== BUILDING COREUTILS ======"
-cd coreutils-*/
+prepare coreutils
 # configure
 ./configure --prefix=$TOOLS --enable-install-program=hostname
 # build
 make
 # test - not mandatory
-make RUN_EXPENSIVE_TESTS=yes check
+#make RUN_EXPENSIVE_TESTS=yes check # fails because of LD_PRELOAD or something
 # install
 make install
 )
 
 # Diffutils
 (
-echo "====== BUILDING DIFFUTILS ======"
-cd diffutils-*/
+prepare diffutils
 # configure
 ./configure --prefix=$TOOLS
 # build
 make
 # test - not mandatory
-make check
+#make check # could fail if you have git commit signing enabled
 # install
 make install
 )
 
 # File
 (
-echo "====== BUILDING FILE ======"
-cd file-*/
+prepare file
 # configure
 ./configure --prefix=$TOOLS
 # build
@@ -362,22 +346,20 @@ make install
 
 # Findutils
 (
-echo "====== BUILDING FINDUTILS ======"
-cd findutils-*/
+prepare findutils
 # configure
 ./configure --prefix=$TOOLS
 # build
 make
 # test - not mandatory
-make check
+#make check # could fail if you have git commit signing enabled
 # install
 make install
 )
 
 # Gawk
 (
-echo "====== BUILDING GAWK ======"
-cd gawk-*/
+prepare gawk
 # configure
 ./configure --prefix=$TOOLS
 # build
@@ -390,8 +372,8 @@ make install
 
 # Gettext
 (
-echo "====== BUILDING GETTEXT ======"
-cd gettext-*/gettext-tools/
+prepare gettext
+cd gettext-tools/
 # configure
 EMACS="no" ./configure --prefix=$TOOLS --disable-shared
 # build
@@ -406,22 +388,20 @@ cp -v src/{msgfmt,msgmerge,xgettext} $TOOLS/bin
 
 # Grep
 (
-echo "====== BUILDING GREP ======"
-cd grep-*/
+prepare grep
 # configure
 ./configure --prefix=$TOOLS
 # build
 make
 # test - not mandatory
-make check
+#make check # could fail if you have git commit signing enabled
 # install
 make install
 )
 
 # Gzip
 (
-echo "====== BUILDING GZIP ======"
-cd gzip-*/
+prepare gzip
 # configure
 ./configure --prefix=$TOOLS
 # build
@@ -434,22 +414,20 @@ make install
 
 # M4
 (
-echo "====== BUILDING M4 ======"
-cd m4-*/
+prepare m4
 # configure
 ./configure --prefix=$TOOLS
 # build
 make
 # test - not mandatory
-make check
+#make check # could fail if you have git commit signing enabled
 # install
 make install
 )
 
 # Make
 (
-echo "====== BUILDING MAKE ======"
-cd make-*/
+prepare make
 # configure
 ./configure --prefix=$TOOLS --without-guile
 # build
@@ -462,8 +440,7 @@ make install
 
 # Patch
 (
-echo "====== BUILDING PATCH ======"
-cd patch-*/
+prepare patch
 # configure
 ./configure --prefix=$TOOLS
 # build
@@ -476,8 +453,7 @@ make install
 
 # Perl
 (
-echo "====== BUILDING PERL ======"
-cd perl-*/
+prepare perl
 # configure
 sh Configure -des -Dprefix=$TOOLS -Dlibs=-lm
 # build
@@ -490,8 +466,7 @@ cp -Rv lib/* $TOOLS/lib/perl5/5.24.0
 
 # Sed
 (
-echo "====== BUILDING SED ======"
-cd sed-*/
+prepare sed
 # configure
 ./configure --prefix=$TOOLS
 # build
@@ -504,8 +479,7 @@ make install
 
 # Tar
 (
-echo "====== BUILDING TAR ======"
-cd tar-*/
+prepare tar
 # configure
 ./configure --prefix=$TOOLS
 # build
@@ -518,8 +492,7 @@ make install
 
 # Texinfo
 (
-echo "====== BUILDING TEXINFO ======"
-cd texinfo-*/
+prepare texinfo
 # configure
 ./configure --prefix=$TOOLS
 # build
@@ -532,8 +505,7 @@ make install
 
 # Patch
 (
-echo "====== BUILDING PATCH ======"
-cd util-linux-*/
+prepare util-linux Patch
 # configure
 ./configure --prefix=$TOOLS \
   --without-python \
@@ -548,8 +520,7 @@ make install
 
 # Xz
 (
-echo "====== BUILDING XZ ======"
-cd xz-*/
+prepare xz
 # configure
 ./configure --prefix=$TOOLS
 # build
@@ -561,10 +532,10 @@ make install
 )
 
 # strip debugging symbols
-strip --strip-debug $TOOLS/lib/*
-/usr/bin/strip --strip-unneeded $TOOLS/{,s}bin/*
+strip --strip-debug $TOOLS/lib/* || true
+/usr/bin/strip --strip-unneeded $TOOLS/{,s}bin/* || true
 
 # remove documentation
-rm -rf $TOOLS/{,share}/{info,man,doc}
+rm -rvf $TOOLS/{,share}/{info,man,doc}
 
 

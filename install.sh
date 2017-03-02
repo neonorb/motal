@@ -19,12 +19,10 @@ if [ $# -eq 0 ]; then
 fi
 
 # download everything
-#LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES ./download.sh
-# extract everything
-#LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES ./extract.sh
+LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES ./download.sh
 # build temporary tools
-LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES LFS_BUILD_TOOLS=$LFS_BUILD_TOOLS ./build.sh
+LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES LFS_BUILD_TOOLS=$LFS_BUILD_TOOLS ./buildtools.sh
 # install main system
-LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES LFS_BUILD_TOOLS=$LFS_BUILD_TOOLS LFS_ROOT=$LFS_ROOT TIME_ZONE="America/New_York" ./buildsystem.sh
+sudo LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES LFS_BUILD_TOOLS=$LFS_BUILD_TOOLS LFS_ROOT=$LFS_ROOT TIME_ZONE="America/New_York" ./buildsystem.sh
 # clone it to the image
 # TODO ./createdrive.sh $1
