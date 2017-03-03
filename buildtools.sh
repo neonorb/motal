@@ -15,8 +15,6 @@ LC_ALL=POSIX
 PATH=$TOOLS/bin/:/bin/:/usr/bin/
 LFS_TGT=$(uname -m)-lfs-linux-gnu
 
-if false; then
-
 # binutils
 (
 prepare binutils
@@ -39,8 +37,6 @@ esac
 # install to tools directory
 make install
 )
-
-fi
 
 # GCC
 (
