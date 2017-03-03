@@ -4,17 +4,18 @@ set -e
 
 source tools.sh
 
-cd $LFS_BUILD_SOURCES
+cd $SOURCES
 
-mkdir -p $LFS_BUILD_TOOLS
+mkdir -p $TOOLS
 
 # setup variables and things
 set +h
 umask 022
 LC_ALL=POSIX
-TOOLS=$LFS_BUILD_TOOLS
 PATH=$TOOLS/bin/:/bin/:/usr/bin/
 LFS_TGT=$(uname -m)-lfs-linux-gnu
+
+if false; then
 
 # binutils
 (
@@ -39,13 +40,18 @@ esac
 make install
 )
 
+fi
+
 # GCC
 (
+extract mpfr
+extract gmp
+extract mpc
 prepare gcc
 # copy package folders
 cp -r ../mpfr-*/ mpfr/
 cp -r ../gmp-*/ gmp/
-rm -rf mpc/; cp -r ../mpc-*/ mpc/
+cp -r ../mpc-*/ mpc/
 # update gcc dynamic linker to use the one installed in tools & removes /usr/include from the search path
 for file in \
   $(find gcc/config -name linux64.h -o -name linux.h -o -name sysv4.h)

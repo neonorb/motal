@@ -1,38 +1,55 @@
 #!/bin/bash
 
+if [ -z "${LFS_ROOT+x}" ]; then echo "missing \$LFS_ROOT";exit ;else echo "using root: $LFS_ROOT"; fi
+if [ -z "${TIME_ZONE+x}" ]; then echo "missing \$TIME_ZONE";exit ;else echo "using time zone: $TIME_ZONE"; fi
+
 set -e
 
+if [ "$EUID" -ne 0 ]; then
+  echo "You must run this as root."
+  exit
+fi
+
 source tools.sh
+mkdir -p $LFS_ROOT/build/
+cp tools.sh $LFS_ROOT/build/tools.sh
 
-TOOLS=$LFS_BUILD_TOOLS
+function cleanup() {
+    echo "cleaning up"
+    umount $LFS_ROOT/dev/pts
+    umount $LFS_ROOT/dev
+    umount $LFS_ROOT/run
+    umount $LFS_ROOT/proc
+    umount $LFS_ROOT/sys
+    umount $LFS_ROOT/$TOOLS
+    umount $LFS_ROOT/$SOURCES
+    echo "done cleaning up"
+}
+trap cleanup 0
 
-# cleanup mounts
-umount -vflR $LFS_ROOT/* || true
-rm -f $LFS_ROOT/dev/console
-rm -f $LFS_ROOT/dev/null
-
-echo "creating"
-
+# setup root directory
+echo "setting up root directory"
 mkdir -p $LFS_ROOT/{dev,proc,sys,run}
 
-mknod -m 600 $LFS_ROOT/dev/console c 5 1
-mknod -m 666 $LFS_ROOT/dev/null c 1 3
+mknod -m 600 $LFS_ROOT/dev/console c 5 1 || echo ok
+mknod -m 666 $LFS_ROOT/dev/null c 1 3 || echo ok
 
-mount -v --bind /dev $LFS_ROOT/dev
+mount  --bind /dev $LFS_ROOT/dev
 
-mount -vt devpts devpts $LFS_ROOT/dev/pts -o gid=5,mode=620
-mount -vt proc proc $LFS_ROOT/proc
-mount -vt sysfs sysfs $LFS_ROOT/sys
-mount -vt tmpfs tmpfs $LFS_ROOT/run
+mount -t devpts devpts $LFS_ROOT/dev/pts -o gid=5,mode=620
+mount -t proc proc $LFS_ROOT/proc
+mount -t sysfs sysfs $LFS_ROOT/sys
+mount -t tmpfs tmpfs $LFS_ROOT/run
 
-mkdir -p $LFS_ROOT/$LFS_BUILD_TOOLS
-mount --bind $LFS_BUILD_TOOLS $LFS_ROOT/$LFS_BUILD_TOOLS
-mkdir -p $LFS_ROOT/$LFS_BUILD_SOURCES
-mount --bind $LFS_BUILD_SOURCES $LFS_ROOT/$LFS_BUILD_SOURCES
+mkdir -p $LFS_ROOT/$TOOLS
+mount --bind $TOOLS $LFS_ROOT/$TOOLS
+mkdir -p $LFS_ROOT/$SOURCES
+mount --bind $SOURCES $LFS_ROOT/$SOURCES
 
 if [ -h $LFS_ROOT/dev/shm ]; then
-mkdir -pv $LFS_ROOT/$(readlink $LFS_ROOT/dev/shm)
+mkdir -p $LFS_ROOT/$(readlink $LFS_ROOT/dev/shm)
 fi
+echo "done setting up root directory"
 
 chroot $LFS_ROOT $TOOLS/bin/env -i \
   HOME=/root \
@@ -41,37 +58,40 @@ chroot $LFS_ROOT $TOOLS/bin/env -i \
   PATH=/bin:/usr/bin:/sbin:/usr/sbin:$TOOLS/bin \
   $TOOLS/bin/bash --login +h << EOF1 
 
+set -e
+source /build/tools.sh
+
 # inside chroot
-mkdir -pv /{bin,boot,etc/{opt,sysconfig},home,lib/firmware,mnt,opt}
-mkdir -pv /{media/{floppy,cdrom},sbin,srv,var}
-install -dv -m 0750 /root
-install -dv -m 1777 /tmp /var/tmp
-mkdir -pv /usr/{,local/}{bin,include,lib,sbin,src}
-mkdir -pv /usr/{,local/}share/{color,dict,doc,info,locale,man}
-mkdir -v /usr/{,local/}share/{misc,terminfo,zoneinfo}
-mkdir -v /usr/libexec
-mkdir -pv /usr/{,local/}share/man/man{1..8}
+mkdir -p /{bin,boot,etc/{opt,sysconfig},home,lib/firmware,mnt,opt}
+mkdir -p /{media/{floppy,cdrom},sbin,srv,var}
+install -d -m 0750 /root
+install -d -m 1777 /tmp /var/tmp
+mkdir -p /usr/{,local/}{bin,include,lib,sbin,src}
+mkdir -p /usr/{,local/}share/{color,dict,doc,info,locale,man}
+mkdir -p /usr/{,local/}share/{misc,terminfo,zoneinfo}
+mkdir -p /usr/libexec
+mkdir -p /usr/{,local/}share/man/man{1..8}
 
 case $(uname -m) in
-  x86_64) ln -sv lib /lib64
-    ln -sv lib /usr/lib64
-    ln -sv lib /usr/local/lib64 ;;
+  x86_64) ln -sf lib /lib64
+    ln -sf lib /usr/lib64
+    ln -sf lib /usr/local/lib64;;
 esac
 
-mkdir -v /var/{log,mail,spool}
-ln -sv /run /var/run
-ln -sv /run/lock /var/lock
-mkdir -pv /var/{opt,cache,lib/{color,misc,locate},local}
+mkdir -p /var/{log,mail,spool}
+ln -sf /run /var/run
+ln -sf /run/lock /var/lock
+mkdir -p /var/{opt,cache,lib/{color,misc,locate},local}
 
 # create essential files and symlinks
-ln -sv $TOOLS/bin/{bash,cat,echo,pwd,stty} /bin
-ln -sv $TOOLS/bin/perl /usr/bin
-ln -sv $TOOLS/lib/libgcc_s.so{,.1} /usr/lib
-ln -sv $TOOLS/lib/libstdc++.so{,.6} /usr/lib
+ln -sf $TOOLS/bin/{bash,cat,echo,pwd,stty} /bin
+ln -sf $TOOLS/bin/perl /usr/bin || true
+ln -sf $TOOLS/lib/libgcc_s.so{,.1} /usr/lib
+ln -sf $TOOLS/lib/libstdc++.so{,.6} /usr/lib
 sed "s$TOOLS/usr/" $TOOLS/lib/libstdc++.la > /usr/lib/libstdc++.la
-ln -sv bash /bin/sh
+ln -sf bash /bin/sh
 
-ln -sv /proc/self/mounts /etc/mtab
+ln -sf /proc/self/mounts /etc/mtab
 
 # create users
 cat > /etc/passwd << EOF2
@@ -111,9 +131,9 @@ EOF2
 
 # initialize log files
 touch /var/log/{btmp,lastlog,faillog,wtmp}
-chgrp -v utmp /var/log/lastlog
-chmod -v 664 /var/log/lastlog
-chmod -v 600 /var/log/btmp
+chgrp utmp /var/log/lastlog
+chmod 664 /var/log/lastlog
+chmod 600 /var/log/btmp
 
 cd $LFS_BUILD_SOURCES
 
@@ -125,7 +145,7 @@ make mrproper
 # install
 make INSTALL_HDR_PATH=dest headers_install
 find dest/include \( -name .install -o -name ..install.cmd \) -delete
-cp -rv dest/include/* /usr/include
+cp -r dest/include/* /usr/include
 )
 
 # Man pages
@@ -153,10 +173,10 @@ make check
 # install
 touch /etc/ld.so.conf
 make install
-cp -v ../nscd/nscd.conf /etc/nscd.conf
-mkdir -pv /var/cache/nscd
+cp ../nscd/nscd.conf /etc/nscd.conf
+mkdir -p /var/cache/nscd
 # locales
-mkdir -pv /usr/lib/locale
+mkdir -p /usr/lib/locale
 localedef -i cs_CZ -f UTF-8 cs_CZ.UTF-8
 localedef -i de_DE -f ISO-8859-1 de_DE
 localedef -i de_DE@euro -f ISO-8859-15 de_DE@euro
@@ -196,17 +216,17 @@ EOF2
 # time zone
 tar -xf ../../tzdata2016f.tar.gz
 ZONEINFO=/usr/share/zoneinfo
-mkdir -pv $ZONEINFO/{posix,right}
+mkdir -p $ZONEINFO/{posix,right}
 for tz in etcetera southamerica northamerica europe africa antarctica \
     asia australasia backward pacificnew systemv; do
   zic -L /dev/null   -d $ZONEINFO       -y "sh yearistype.sh" ${tz}
   zic -L /dev/null   -d $ZONEINFO/posix -y "sh yearistype.sh" ${tz}
   zic -L leapseconds -d $ZONEINFO/right -y "sh yearistype.sh" ${tz}
 done
-cp -v zone.tab zone1970.tab iso3166.tab $ZONEINFO
+cp zone.tab zone1970.tab iso3166.tab $ZONEINFO
 zic -d $ZONEINFO -p $TIME_ZONE
 unset ZONEINFO
-cp -v /ur/share/zoneinfo/$TIME_ZONE /etc/localtime
+cp /ur/share/zoneinfo/$TIME_ZONE /etc/localtime
 # dynamic loader
 cat > /etc/ld.so.conf << EOF2
 # Begin /etc/ld.so.conf
@@ -214,10 +234,10 @@ cat > /etc/ld.so.conf << EOF2
 /opt/lib
 EOF2
 # adjusting the toolchain
-mv -v $TOOLS/bin/{ld,ld-old}
-mv -v $TOOLS/$(uname -m)-pc-linux-gnu/bin/{ld,ld-old}
-mv -v $TOOLS/bin/{ld-new,ld}
-ln -sv $TOOLS/bin/ld $TOOLS/$(uname -m)-pc-linux-gnu/bin/ld
+mv $TOOLS/bin/{ld,ld-old}
+mv $TOOLS/$(uname -m)-pc-linux-gnu/bin/{ld,ld-old}
+mv $TOOLS/bin/{ld-new,ld}
+ln -sf $TOOLS/bin/ld $TOOLS/$(uname -m)-pc-linux-gnu/bin/ld
 gcc -dumpspecs | sed -e "s@/$TOOLS@@g" \
   -e '/\*startfile_prefix_spec:/{n;s@.*@/usr/lib/ @}' \
   -e '/\*cpp:/{n;s@$@ -isystem /usr/include@}' > \
@@ -235,8 +255,8 @@ make
 make check
 # install
 make install
-mv -v /usr/lib/libz.so.* /lib
-ln -sfv ../../lib/$(readlink /usr/lib/libz.so) /usr/lib/libz.so
+mv /usr/lib/libz.so.* /lib
+ln -sf ../../lib/$(readlink /usr/lib/libz.so) /usr/lib/libz.so
 )
 
 # File
@@ -341,13 +361,13 @@ ulimit -s 32768
 make -k check
 # install
 make install
-ln -sv ../usr/bin/cpp /lib
-ln -sv gcc /usr/bin/cc
-install -v -dm755 /usr/lib/bfd-plugins
-ln -sfv ../../libexec/gcc/$(gcc -dumpmachine)/6.2.0/liblto_plugin.so \
+ln -sf ../usr/bin/cpp /lib
+ln -sf gcc /usr/bin/cc
+install -dm755 /usr/lib/bfd-plugins
+ln -sf ../../libexec/gcc/$(gcc -dumpmachine)/6.2.0/liblto_plugin.so \
   /usr/lib/bfd-plugins/
-mkdir -pv /usr/share/gdb/auto-load/usr/lib
-mv -v /usr/lib/*gdb.py /usr/share/gdb/auto-load/usr/lib
+mkdir -p /usr/share/gdb/auto-load/usr/lib
+mv /usr/lib/*gdb.py /usr/share/gdb/auto-load/usr/lib
 )
 
 # Bzip
@@ -364,12 +384,12 @@ make clean
 make
 # install
 make PREFIX=/usr install
-cp -v bzip2-shared /bin/bzip2
-cp -av libbz2.so* /lib
-ln -sv ../../lib/libbz2.so.1.0 /usr/lib/libbz2.so
-rm -v /usr/bin/{bunzip2,bzcat,bzip2}
-ln -sv bzip2 /bin/bunzip2
-ln -sv bzip2 /bin/bzcat
+cp bzip2-shared /bin/bzip2
+cp -a libbz2.so* /lib
+ln -sf ../../lib/libbz2.so.1.0 /usr/lib/libbz2.so
+rm - /usr/bin/{bunzip2,bzcat,bzip2}
+ln -sf bzip2 /bin/bunzip2
+ln -sf bzip2 /bin/bzcat
 )
 
 # Pkg-config
@@ -405,18 +425,18 @@ sed -i '/LIBTOOL_INSTALL/d' c++/Makefile.in
 make
 # install
 make install
-mv -v /usr/lib/libncursesw.so.6* /lib
-ln -sfv ../../lib/$(readlink /usr/lib/libncursesw.so) /usr/lib/libncursesw.so
+mv /usr/lib/libncursesw.so.6* /lib
+ln -sf ../../lib/$(readlink /usr/lib/libncursesw.so) /usr/lib/libncursesw.so
 for lib in ncurses form panel menu ; do
-  rm -vf                    /usr/lib/lib${lib}.so
+  rm -f                    /usr/lib/lib${lib}.so
   echo "INPUT(-l${lib}w)" > /usr/lib/lib${lib}.so
-  ln -sfv ${lib}w.pc        /usr/lib/pkgconfig/${lib}.pc
+  ln -sf ${lib}w.pc        /usr/lib/pkgconfig/${lib}.pc
 done
-rm -vf                     /usr/lib/libcursesw.so
+rm -f                     /usr/lib/libcursesw.so
 echo "INPUT(-lncursesw)" > /usr/lib/libcursesw.so
-ln -sfv libncurses.so      /usr/lib/libcurses.so
-mkdir -v       /usr/share/doc/ncurses-6.0
-cp -v -R doc/* /usr/share/doc/ncurses-6.0
+ln -sf libncurses.so      /usr/lib/libcurses.so
+mkdir       /usr/share/doc/ncurses-6.0
+cp -R doc/* /usr/share/doc/ncurses-6.0
 )
 
 # Attr
@@ -434,9 +454,9 @@ make
 make -j1 tests root-tests
 # install
 make install install-dev install-lib
-chmod -v 755 /usr/lib/libattr.so
-mv -v /usr/lib/libattr.so.* /lib
-ln -sfv ../../lib/$(readlink /usr/lib/libattr.so) /usr/lib/libattr.so
+chmod 755 /usr/lib/libattr.so
+mv /usr/lib/libattr.so.* /lib
+ln -sf ../../lib/$(readlink /usr/lib/libattr.so) /usr/lib/libattr.so
 )
 
 # Acl
@@ -455,9 +475,9 @@ sed -i -e "/TABS-1;/a if (x > (TABS-1)) x = (TABS-1);" \
 make
 # install
 make install install-dev install-lib
-chmod -v 755 /usr/lib/libacl.so
-mv -v /usr/lib/libacl.so.* /lib
-ln -sfv ../../lib/$(readlink /usr/lib/libacl.so) /usr/lib/libacl.so
+chmod 755 /usr/lib/libacl.so
+mv /usr/lib/libacl.so.* /lib
+ln -sf ../../lib/$(readlink /usr/lib/libacl.so) /usr/lib/libacl.so
 )
 
 # Libcap
@@ -469,9 +489,9 @@ sed -i '/install.*STALIBNAME/d' libcap/Makefile
 make
 # install
 make RAISE_SETFCAP=no prefix=/usr install
-chmod -v 755 /usr/lib/libcap.so
-mv -v /usr/lib/libcap.so.* /lib
-ln -sfv ../../lib/$(readlink /usr/lib/libcap.so) /usr/lib/libcap.so
+chmod 755 /usr/lib/libcap.so
+mv /usr/lib/libcap.so.* /lib
+ln -sf ../../lib/$(readlink /usr/lib/libcap.so) /usr/lib/libcap.so
 )
 
 # Sed
@@ -505,7 +525,7 @@ sed -i 's/1000/999/' etc/useradd
 make
 # install
 make install
-mv -v /usr/bin/passwd /bin
+mv /usr/bin/passwd /bin
 # configure
 pwconv
 grpconv
@@ -522,8 +542,8 @@ prepare psmisc
 make
 # install
 make install
-mv -v /usr/bin/fuser /bin
-mv -v /usr/bin/killall /bin
+mv /usr/bin/fuser /bin
+mv /usr/bin/killall /bin
 )
 
 # Iana-Etc
@@ -570,7 +590,7 @@ make
 make check
 # install
 make install
-ln -sv flex /usr/bin/lex
+ln -sf flex /usr/bin/lex
 )
 
 # Grep
@@ -600,10 +620,10 @@ sed -i '/{OLDSUFF}/c:' support/shlib-install
 make SHLIB_LIBS=-lncurses
 # install
 make SHLIB_LIBS=-lncurses install
-mv -v /usr/lib/lib{readline,history}.so.* /lib
-ln -sfv ../../lib/$(readlink /usr/lib/libreadline.so) /usr/lib/libreadline.so
-ln -sfv ../../lib/$(readlink /usr/lib/libhistory.so ) /usr/lib/libhistory.so
-install -v -m644 doc/*.{ps,pdf,html,dvi} /usr/share/doc/readline-6.3
+mv /usr/lib/lib{readline,history}.so.* /lib
+ln -sf ../../lib/$(readlink /usr/lib/libreadline.so) /usr/lib/libreadline.so
+ln -sf ../../lib/$(readlink /usr/lib/libhistory.so ) /usr/lib/libhistory.so
+install -m644 doc/*.{ps,pdf,html,dvi} /usr/share/doc/readline-6.3
 )
 
 # Bash
@@ -618,11 +638,11 @@ patch -Np1 -i ../bash-4.3.30-upstream_fixes-3.patch
 # build
 make
 # test
-chown -Rv nobody .
+chown -R nobody .
 su nobody -s /bin/bash -c "PATH=$PATH make tests"
 # install
 make install
-mv -vf /usr/bin/bash /bin
+mv -f /usr/bin/bash /bin
 )
 
 # Bc
@@ -679,8 +699,8 @@ make
 make check
 # install
 make install
-install -v -dm755 /usr/share/doc/expat-2.2.0
-install -v -m644 doc/*.{html,png,css} /usr/share/doc/expat-2.2.0
+install -dm755 /usr/share/doc/expat-2.2.0
+install -m644 doc/*.{html,png,css} /usr/share/doc/expat-2.2.0
 )
 
 # Inetutils
@@ -702,8 +722,8 @@ make
 make check
 # install
 make install
-mv -v /usr/bin/{hostname,ping,ping6,traceroute} /bin
-mv -v /usr/bin/ifconfig /sbin
+mv /usr/bin/{hostname,ping,ping6,traceroute} /bin
+mv /usr/bin/ifconfig /sbin
 )
 
 # Perl
@@ -753,7 +773,7 @@ make
 make ceck
 # install
 make install
-install -v -Dm644 doc/I18N-HOWTO /usr/share/doc/intltool-0.51.0/I18N-HOWTO
+install -Dm644 doc/I18N-HOWTO /usr/share/doc/intltool-0.51.0/I18N-HOWTO
 )
 
 # Autoconf
@@ -799,9 +819,9 @@ make
 make check
 # install
 make install
-mv -v /usr/bin/{lzma,unlzma,lzcat,xz,unxz,xzcat} /bin
-mv -v /usr/lib/liblzma.so.* /lib
-ln -svf ../../lib/$(readlink /usr/lib/liblzma.so) /usr/lib/liblzma.so
+mv /usr/bin/{lzma,unlzma,lzcat,xz,unxz,xzcat} /bin
+mv /usr/lib/liblzma.so.* /lib
+ln -sf ../../lib/$(readlink /usr/lib/liblzma.so) /usr/lib/liblzma.so
 )
 
 # Kmod
@@ -819,9 +839,9 @@ make
 # install
 make install
 for target in depmod insmod lsmod modinfo modprobe rmmod; do
-  ln -sfv ../bin/kmod /sbin/$target
+  ln -sf ../bin/kmod /sbin/$target
 done
-ln -sfv kmod /bin/lsmod
+ln -sf kmod /bin/lsmod
 )
 
 # Gettext
@@ -837,7 +857,7 @@ make
 make check
 # install
 make install
-chmod -v 0755 /usr/lib/preloadable_libintl.so
+chmod 0755 /usr/lib/preloadable_libintl.so
 )
 
 # Procps-ng
@@ -857,8 +877,8 @@ sed -i -r 's|(pmap_initname)\\\$|\1|' testsuite/pmap.test/pmap.exp
 make check
 # install
 make install
-mv -v /usr/lib/libprocps.so.* /lib
-ln -sfv ../../lib/$(readlink /usr/lib/libprocps.so) /usr/lib/libprocps.so
+mv /usr/lib/libprocps.so.* /lib
+ln -sf ../../lib/$(readlink /usr/lib/libprocps.so) /usr/lib/libprocps.so
 )
 
 # E2fsprogs
@@ -866,7 +886,7 @@ ln -sfv ../../lib/$(readlink /usr/lib/libprocps.so) /usr/lib/libprocps.so
 prepare e2fsprogs
 # prepare for installation
 sed -i -e 's:\[\.-\]::' tests/filter.sed
-mkdir -v build
+mkdir build
 cd build
 LIBS=-L$TOOLS/lib \
 CFLAGS=-I$TOOLS/include \
@@ -882,17 +902,17 @@ PKG_CONFIG_PATH=$TOOLS/lib/pkgconfig \
 # build
 make
 # test
-ln -sfv $TOOLS/lib/lib{blk,uu}id.so.1 lib
+ln -sf $TOOLS/lib/lib{blk,uu}id.so.1 lib
 make LD_LIBRARY_PATH=$TOOLS/lib check
 # install
 make install
 make install-libs
-chmod -v u+w /usr/lib/{libcom_err,libe2p,libext2fs,libss}.a
-gunzip -v /usr/share/info/libext2fs.info.gz
+chmod u+w /usr/lib/{libcom_err,libe2p,libext2fs,libss}.a
+gunzip /usr/share/info/libext2fs.info.gz
 install-info --dir-file=/usr/share/info/dir /usr/share/info/libext2fs.info
 makeinfo -o
 doc/com_err.info ../lib/et/com_err.texinfo
-install -v -m644 doc/com_err.info /usr/share/info
+install -m644 doc/com_err.info /usr/share/info
 install-info --dir-file=/usr/share/info/dir /usr/share/info/com_err.info
 )
 
@@ -909,19 +929,19 @@ FORCE_UNSAFE_CONFIGURE=1 make
 # test
 make NON_ROOT_USERNAME=nobody check-root
 echo "dummy:x:1000:nobody" >> /etc/group
-chown -Rv nobody .
+chown -R nobody .
 su nobody -s /bin/bash \
   -c "PATH=$PATH make RUN_EXPENSIVE_TESTS=yes check"
 sed -i '/dummy/d' /etc/group
 # install
 make install
-mv -v /usr/bin/{cat,chgrp,chmod,chown,cp,date,dd,df,echo} /bin
-mv -v /usr/bin/{false,ln,ls,mkdir,mknod,mv,pwd,rm} /bin
-mv -v /usr/bin/{rmdir,stty,sync,true,uname} /bin
-mv -v /usr/bin/chroot /usr/sbin
-mv -v /usr/share/man/man1/chroot.1 /usr/share/man/man8/chroot.8
+mv /usr/bin/{cat,chgrp,chmod,chown,cp,date,dd,df,echo} /bin
+mv /usr/bin/{false,ln,ls,mkdir,mknod,mv,pwd,rm} /bin
+mv /usr/bin/{rmdir,stty,sync,true,uname} /bin
+mv /usr/bin/chroot /usr/sbin
+mv /usr/share/man/man1/chroot.1 /usr/share/man/man8/chroot.8
 sed -i s/\"1\"/\"8\"/1 /usr/share/man/man8/chroot.8
-mv -v /usr/bin/{head,sleep,nice,test,[} /bin
+mv /usr/bin/{head,sleep,nice,test,[} /bin
 )
 
 # Diffutils
@@ -949,8 +969,8 @@ make
 make check
 # install
 make install
-mkdir -v /usr/share/doc/gawk-4.1.3
-cp -v doc/{awkforai.txt,*.{eps,pdf,jpg}} /usr/share/doc/gawk-4.1.3
+mkdir /usr/share/doc/gawk-4.1.3
+cp doc/{awkforai.txt,*.{eps,pdf,jpg}} /usr/share/doc/gawk-4.1.3
 )
 
 # Findutils
@@ -964,7 +984,7 @@ make
 make check
 # install
 make install
-mv -v /usr/bin/find /bin
+mv /usr/bin/find /bin
 sed -i 's|find:=${BINDIR}|find:=/bin|' /usr/bin/updatedb
 )
 
@@ -1016,14 +1036,14 @@ make
 make check
 # install
 make install
-mv -v /usr/bin/gzip /bin
+mv /usr/bin/gzip /bin
 )
 
 # IPRoute2
 (
 prepare iproute2
 # prepare for installation
-mv -v /usr/bin/gzip /bin
+mv /usr/bin/gzip /bin
 sed -i 's/m_ipt.o//' tc/Makefile
 # build
 make
@@ -1045,8 +1065,8 @@ make
 make check
 # install
 make install
-mkdir -v /usr/share/doc/kbd-2.0.3
-cp -R -v docs/doc/* /usr/share/doc/kbd-2.0.3
+mkdir /usr/share/doc/kbd-2.0.3
+cp -R docs/doc/* /usr/share/doc/kbd-2.0.3
 )
 
 # Libpipeline
@@ -1152,7 +1172,7 @@ mkdir -pv /etc/udev/rules.d
 make LD_LIBRARY_PATH=$TOOLS/lib check
 # install
 make LD_LIBRARY_PATH=$TOOLS/lib install
-tar -xvf ../udev-lfs-20140408.tar.bz2
+tar -xf ../udev-lfs-20140408.tar.bz2
 make -f udev-lfs-20140408/Makefile.lfs install
 # configure Eudev
 LD_LIBRARY_PATH=$TOOLS/lib udevadm hwdb --update
@@ -1162,7 +1182,7 @@ LD_LIBRARY_PATH=$TOOLS/lib udevadm hwdb --update
 (
 prepare util-linux
 # prepare for installation
-mkdir -pv /var/lib/hwclock
+mkdir -p /var/lib/hwclock
 ./configure ADJTIME_PATH=/var/lib/hwclock/adjtime \
   --docdir=/usr/share/doc/util-linux-2.28.1 \
   --disable-chfn-chsh \
@@ -1179,7 +1199,7 @@ mkdir -pv /var/lib/hwclock
 # build
 make
 # test
-chown -Rv nobody .
+chown -R nobody .
 su nobody -s /bin/bash -c "PATH=$PATH make -k check"
 # install
 make install
@@ -1234,7 +1254,7 @@ make check
 make install
 make TEXMF=/usr/share/texmf install-tex
 pushd /usr/share/info
-rm -v dir
+rm dir
 for f in *; do
   install-info $f dir 2>/dev/null
 done
@@ -1253,8 +1273,8 @@ prepare nano
 make
 # install
 make install
-install -v -m644 doc/nanorc.sample /etc
-install -v -m644 doc/texinfo/nano.html /usr/share/doc/nano-2.6.3
+install -m644 doc/nanorc.sample /etc
+install -m644 doc/texinfo/nano.html /usr/share/doc/nano-2.6.3
 # configure nano
 cat > /etc/nanorc << EOF2
 set autoindent
@@ -1444,12 +1464,12 @@ make menuconfig
 make
 # install
 make modules_install
-cp -v arch/x86/boot/bzImage /boot/vmlinuz-4.7.2-lfs-7.10
-cp -v System.map /boot/System.map-4.7.2
-cp -v .config /boot/config-4.7.2
+cp arch/x86/boot/bzImage /boot/vmlinuz-4.7.2-lfs-7.10
+cp System.map /boot/System.map-4.7.2
+cp .config /boot/config-4.7.2
 install -d /usr/share/doc/linux-4.7.2
 cp -r Documentation/* /usr/share/doc/linux-4.7.2
-install -v -m755 -d /etc/modprobe.d
+install -m755 -d /etc/modprobe.d
 cat > /etc/modprobe.d/usb.conf << EOF2
 # Begin /etc/modprobe.d/usb.conf
 install ohci_hcd /sbin/modprobe ehci_hcd ; /sbin/modprobe -i ohci_hcd ; true
@@ -1485,12 +1505,3 @@ DISTRIB_DESCRIPTION="Linux From Scratch"
 EOF2
 
 EOF1
-
-# cleanup mounts
-umount -vfl $LFS_ROOT/dev/pts
-umount -vfl $LFS_ROOT/dev
-umount -vfl $LFS_ROOT/run
-umount -vfl $LFS_ROOT/proc
-umount -vfl $LFS_ROOT/sys
-umount -vfl $LFS_ROOT/$LFS_BUILD_TOOLS
-umount -vfl $LFS_ROOT/$LFS_BUILD_SOURCES

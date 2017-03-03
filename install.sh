@@ -2,11 +2,12 @@
 
 set -e
 
-REMOVE_UP_TO=/home/
-LFS_ROOT=$PWD/build/root/
-LFS_BUILD=$LFS_ROOT/build/
-LFS_BUILD_SOURCES=$LFS_BUILD/sources/
-LFS_BUILD_TOOLS=$LFS_BUILD/tools/
+export REMOVE_UP_TO=/home/
+export BUILD=$PWD/build/
+export LFS_ROOT=$BUILD/root/
+export SOURCES=$BUILD/sources/
+export TOOLS=$BUILD/tools/
+export TIME_ZONE="America/New_York"
 
 function usage() {
   echo "Usage:"
@@ -19,10 +20,13 @@ if [ $# -eq 0 ]; then
 fi
 
 # download everything
-LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES ./download.sh
+#./download.sh
 # build temporary tools
-LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES LFS_BUILD_TOOLS=$LFS_BUILD_TOOLS ./buildtools.sh
+./buildtools.sh
 # install main system
-sudo LFS_BUILD_SOURCES=$LFS_BUILD_SOURCES LFS_BUILD_TOOLS=$LFS_BUILD_TOOLS LFS_ROOT=$LFS_ROOT TIME_ZONE="America/New_York" ./buildsystem.sh
+echo "=========="
+echo "As this script requires chrooting to finish building, you must authenticate as root."
+echo "If you're in a GUI environment, there should be a GUI authentication window available."
+pkexec bash -c "cd $PWD; TIME_ZONE=$TIME_ZONE LFS_ROOT=$LFS_ROOT TOOLS=$TOOLS SOURCES=$SOURCES ./buildsystem.sh"
 # clone it to the image
 # TODO ./createdrive.sh $1

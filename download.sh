@@ -3,15 +3,15 @@
 set -e
 
 # create download directory
-mkdir -p $LFS_BUILD_SOURCES
-chmod a+wt $LFS_BUILD_SOURCES
+mkdir -p $SOURCES
+chmod a+wt $SOURCES
 
 # download packages
-wget --input-file=package-list.txt --continue --directory-prefix=$LFS_BUILD_SOURCES
+wget --input-file=package-list.txt --continue --directory-prefix=$SOURCES
 
 # check md5 sums
 echo "verifying md5 sums"
 MD5SUMS=$PWD/md5sums.txt
-pushd $LFS_BUILD_SOURCES
+pushd $SOURCES
 md5sum -c $MD5SUMS
 popd
