@@ -2,6 +2,9 @@
 
 set -e
 
+if [ -z "${SOURCES+x}" ]; then echo "missing \$SOURCES";exit ;else echo "using sources: $SOURCS"; fi
+if [ -z "${TOOLS+x}" ]; then echo "missing \$TOOLS";exit ;else echo "using tools: $TOOLS"; fi
+
 source tools.sh
 
 cd $SOURCES
@@ -32,7 +35,7 @@ cd build/
 make
 
 case $(uname -m) in
-  x86_64) mkdir -vp $TOOLS/lib/ && ln -sv -T $TOOLS/lib $TOOLS/lib64 || echo ;;
+  x86_64) mkdir -vp $TOOLS/lib/ && ln -sf -T $TOOLS/lib $TOOLS/lib64 || echo ;;
 esac
 # install to tools directory
 make install
@@ -210,7 +213,7 @@ RANLIB=$LFS_TGT-ranlib \
 make
 # install
 make install
-ln -sv gcc $TOOLS/bin/cc
+ln -sf gcc $TOOLS/bin/cc
 )
 
 # Tcl-core
@@ -227,7 +230,7 @@ TZ=UTC make test
 make install
 chmod -v u+w $TOOLS/lib/libtcl8.6.so
 make install-private-headers
-ln -sv tclsh8.6 $TOOLS/bin/tclsh
+ln -sf tclsh8.6 $TOOLS/bin/tclsh
 )
 
 # Expect
@@ -295,7 +298,7 @@ make
 make tests
 # install
 make install
-ln -s bash $TOOLS/bin/sh
+ln -sf bash $TOOLS/bin/sh
 )
 
 # Bzip

@@ -7,7 +7,7 @@ mkdir -p $SOURCES
 chmod a+wt $SOURCES
 
 # download packages
-wget --input-file=package-list.txt --continue --directory-prefix=$SOURCES
+wget --input-file=package-list.txt --continue --directory-prefix=$SOURCES || (echo "download failed"; exit 1)
 
 # check md5 sums
 echo "verifying md5 sums"

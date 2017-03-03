@@ -20,9 +20,9 @@ if [ $# -eq 0 ]; then
 fi
 
 # download everything
-#./download.sh
+if [ -z "$SKIP_DOWNLOAD" ]; then ./download.sh; else echo "skipping download"; fi
 # build temporary tools
-./buildtools.sh
+######./buildtools.sh
 # install main system
 echo "=========="
 echo "As this script requires chrooting to finish building, you must authenticate as root."

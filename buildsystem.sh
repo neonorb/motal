@@ -2,6 +2,8 @@
 
 if [ -z "${LFS_ROOT+x}" ]; then echo "missing \$LFS_ROOT";exit ;else echo "using root: $LFS_ROOT"; fi
 if [ -z "${TIME_ZONE+x}" ]; then echo "missing \$TIME_ZONE";exit ;else echo "using time zone: $TIME_ZONE"; fi
+if [ -z "${SOURCES+x}" ]; then echo "missing \$SOURCES";exit ;else echo "using souces: $SOURCES"; fi
+if [ -z "${TOOLS+x}" ]; then echo "missing \$TOOLS";exit ;else echo "using root: $TOOLS"; fi
 
 set -e
 
@@ -88,7 +90,7 @@ ln -sf $TOOLS/bin/{bash,cat,echo,pwd,stty} /bin
 ln -sf $TOOLS/bin/perl /usr/bin || true
 ln -sf $TOOLS/lib/libgcc_s.so{,.1} /usr/lib
 ln -sf $TOOLS/lib/libstdc++.so{,.6} /usr/lib
-sed "s$TOOLS/usr/" $TOOLS/lib/libstdc++.la > /usr/lib/libstdc++.la
+sed "s#$TOOLS#usr#" $TOOLS/lib/libstdc++.la > /usr/lib/libstdc++.la
 ln -sf bash /bin/sh
 
 ln -sf /proc/self/mounts /etc/mtab
@@ -135,7 +137,7 @@ chgrp utmp /var/log/lastlog
 chmod 664 /var/log/lastlog
 chmod 600 /var/log/btmp
 
-cd $LFS_BUILD_SOURCES
+cd $SOURCES
 
 # Linux API headers
 (
@@ -1324,7 +1326,7 @@ chroot $LFS $TOOLS/bin/env -i \
   PATH=/bin:/usr/bin:/sbin:/usr/sbin \
   $TOOLS/bin/bash --login << EOF1
 
-cd $LFS_BUILD_SOURCES
+cd $SOURCES
 
 # LFS-Bootscripts
 (
