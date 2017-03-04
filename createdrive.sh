@@ -2,16 +2,16 @@
 
 set -e
 
+if [ -z "${LFS_ROOT+x}" ]; then echo "missing \$LFS_ROOT";exit ;else echo "using lfs root: $LFS_ROOT"; fi
+if [ -z "${DISK_ROOT+x}" ]; then echo "missing \$DISK_ROOT";exit ;else echo "using disk root: $DISK_ROOT"; fi
+
 if [ -n $1 ]; then
   echo "Usage:"
-  echo "  ./partition.sh <hard drive>"
+  echo "  ./createdrive.sh <hard drive>"
   exit
 fi
 
-BOOT_START=1M
-BOOT_END=100MB
-
-ROOT_START=100MB
+ROOT_START=1MB
 ROOT_END=5G
 
 HOME_START=5G
@@ -21,22 +21,37 @@ DRIVE=$1
 
 # create partitions
 parted $DRIVE mklabel gpt # create partition table
-parted $DRIVE -a optimal mkpart primary fat32 $BOOT_START $BOOT_END # boot partition
 parted $DRIVE -a optimal mkpart primary ext4 $ROOT_START $ROOT_END # root partition
 parted $DRIVE -a optimal mkpart primary zfs $HOME_START $HOME_END # home partition
 
-sudo su <<EOF # enter root mode
-
 # root partition
-losetup --offset=$ROOT_START /dev/loop0 $1
+losetup --offset=$ROOT_START /dev/loop0 $DRIVE
 mkfs -t ext4 /dev/loop0
-mkdir -p build/drive/root
-mount /dev/loop0 build/drive/root
+mkdir -p $DISK_ROOT
+mount /dev/loop0 $DISK_ROOT
 
-# TODO copy
+# install GRUB
+grub-install $DRIVE
+mkdir -p $DISK_ROOT/boot/
+mount /dev/loop0 $DISK_ROOT/boot/
+cat > $DISK_ROOT/boot/grub/grub.cfg << EOF1
+# Begin /boot/grub/grub.cfg
+set default=0
+set timeout=5
+
+insmod ext2
+set root=(hd0,2)
+
+menuentry "GNU/Linux, Linux 4.7.2-lfs-7.10" {
+    linux /boot/vmlinuz-4.7.2-lfs-7.10 root=/dev/sda2 ro
+}
+EOF1
+
+# copy root fs
+cp -r $LFS_ROOT/* $DISK_ROOT
 
 # unmount filesystems
 umount /dev/loop0
 losetup -d /dev/loop0
-
-EOF
+umount /dev/loop1
+losetup -d /dev/loop1

@@ -2,7 +2,7 @@
 
 set -e
 
-if [ -z "${SOURCES+x}" ]; then echo "missing \$SOURCES";exit ;else echo "using sources: $SOURCS"; fi
+if [ -z "${SOURCES+x}" ]; then echo "missing \$SOURCES";exit ;else echo "using sources: $SOURCES"; fi
 if [ -z "${TOOLS+x}" ]; then echo "missing \$TOOLS";exit ;else echo "using tools: $TOOLS"; fi
 
 source tools.sh
