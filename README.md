@@ -1,9 +1,9 @@
 # motal
-Mish based on Linux From Scratch
+Mish based on Buildroot.
 
-# Dependencies
-These are the programs you must intsall on the host system in order to build Motal:
-* autotools (autoconf)
-* texinfo
-* gawk
-* bison
+# Installing
+To build: `make`
+
+To create an IMG file: `./install.sh it.img`
+
+To install to a disk: `sudo ./install.sh /dev/sdx`

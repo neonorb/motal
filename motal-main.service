@@ -1,0 +1,15 @@
+[Unit]
+Description=Motal Main
+After=systemd-user-sessions.service plymouth-quit-wait.service
+After=rc-local.service
+
+[Service]
+Type=simple
+ExecStart=/bin/sh -c "sleep 1; reset; sh"
+StandardInput=tty
+TTYPath=/dev/tty0
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=default.target
