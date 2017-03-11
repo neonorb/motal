@@ -1490,3 +1490,5 @@ DISTRIB_DESCRIPTION="Linux From Scratch"
 EOF2
 
 EOF1
+
+# trap cleanup

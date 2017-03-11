@@ -19,21 +19,26 @@ HOME_END=100%
 
 DRIVE=$1
 
+function cleanup() {
+    umount /dev/loop0
+    losetup -d $LOOP_ROOT
+}
+trap cleanup 0
+
 # create partitions
 parted $DRIVE mklabel gpt # create partition table
 parted $DRIVE -a optimal mkpart primary ext4 $ROOT_START $ROOT_END # root partition
 parted $DRIVE -a optimal mkpart primary zfs $HOME_START $HOME_END # home partition
 
 # root partition
-losetup --offset=$ROOT_START /dev/loop0 $DRIVE
-mkfs -t ext4 /dev/loop0
-mkdir -p $DISK_ROOT
-mount /dev/loop0 $DISK_ROOT
+LOOP_ROOT=`losetup --offset=$ROOT_START --show -f $DRIVE` # create a loop device at the offset and store the device name in LOOP_ROOT
+mkfs -t ext4 $LOOP_ROOT # create root filesystem on loop device
+mkdir -p $DISK_ROOT # create mountpoint
+mount $LOOP_ROOT $DISK_ROOT # mount root filesystem
 
-# install GRUB
-grub-install $DRIVE
-mkdir -p $DISK_ROOT/boot/
-mount /dev/loop0 $DISK_ROOT/boot/
+grub-install $DRIVE # install GRUB
+
+mkdir -p $DISK_ROOT/boot/ # create boot configs
 cat > $DISK_ROOT/boot/grub/grub.cfg << EOF1
 # Begin /boot/grub/grub.cfg
 set default=0
@@ -43,15 +48,11 @@ insmod ext2
 set root=(hd0,2)
 
 menuentry "GNU/Linux, Linux 4.7.2-lfs-7.10" {
-    linux /boot/vmlinuz-4.7.2-lfs-7.10 root=/dev/sda2 ro
+    linux /boot/vmlinuz-4.7.2-lfs-7.10 root=/dev/sda1 ro
 }
 EOF1
 
 # copy root fs
 cp -r $LFS_ROOT/* $DISK_ROOT
 
-# unmount filesystems
-umount /dev/loop0
-losetup -d /dev/loop0
-umount /dev/loop1
-losetup -d /dev/loop1
+# trap cleanup
