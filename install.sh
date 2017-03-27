@@ -44,6 +44,7 @@ mount $ROOT ./mnt/ # mount root file system
 tar -xf ./buildroot/output/images/rootfs.tar -C ./mnt/ # extract root file system
 cp ./fstab ./mnt/etc/fstab # copy fstab
 chown root:root ./mnt/etc/fstab
+cp ../mish-linux/build/x86_64/mish-linux.bin ./mnt/opt/mish
 cp ./motal-main.service ./mnt/etc/systemd/system/motal-main.service
 chown root:root ./mnt/etc/systemd/system/motal-main.service
 systemctl --root=./mnt/ enable motal-main.service

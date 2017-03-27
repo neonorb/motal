@@ -5,7 +5,7 @@ After=rc-local.service
 
 [Service]
 Type=simple
-ExecStart=/bin/sh -c "sleep 1; reset; sh"
+ExecStart=/bin/sh -c "sleep 1; reset; /opt/mish"
 StandardInput=tty
 TTYPath=/dev/tty0
 TTYReset=yes
