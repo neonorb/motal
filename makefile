@@ -20,6 +20,10 @@ clean:
 	fi
 
 .PHONY:
+clean-all:
+	@if [ -d buildroot/ ]; then rm -rf buildroot/; fi
+
+.PHONY:
 build: buildroot apply-config
 	@cd buildroot/ && make -s all # run builds
 
