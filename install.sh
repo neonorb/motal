@@ -10,9 +10,11 @@ fi
 
 DRIVE=$1
 
+# boot (fat32) partition
 BOOT_START=1MB
 BOOT_END=1G
 
+# root (ext4) partition
 ROOT_START=1G
 ROOT_END=100%
 
